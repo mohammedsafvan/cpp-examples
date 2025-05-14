@@ -177,6 +177,9 @@ int main() {
     std::cout << "Connection accepted from client FD " << client_fd
               << std::endl;
 
+    // this is blocking call means if a client connects main server loop blocked
+    // here with the first client. So the other clients that are trying to
+    // connect would need to wait
     handle_client(client_fd);
   }
   close(server_fd);
