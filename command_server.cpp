@@ -1,9 +1,14 @@
+#include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <netinet/in.h>
 #include <optional>
 #include <sstream>
+#include <string>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 #include <unordered_map>
 #include <vector>
@@ -13,11 +18,20 @@ const int BACKLOG = 5;
 const int BUFFER_SIZE = 1024;
 
 std::unordered_map<std::string, std::string> data_store;
-bool kv_del(const std::string &key) { return data_store.erase(key) > 0; }
+std::mutex data_store_mutex;
+
+bool kv_del(const std::string &key) {
+  std::lock_guard<std::mutex> guard(data_store_mutex);
+  return data_store.erase(key) > 0;
+}
+
 void kv_set(const std::string &key, const std::string &value) {
+  std::lock_guard<std::mutex> guard(data_store_mutex);
   data_store[key] = value;
 }
+
 std::optional<std::string> kv_get(const std::string &key) {
+  std::lock_guard<std::mutex> guard(data_store_mutex);
   auto it = data_store.find(key);
   if (it != data_store.end()) {
     return it->second;
@@ -42,6 +56,8 @@ void send_response(int client_fd, const std::string &resp) {
 }
 
 void handle_client(int client_fd) {
+  std::cout << "Thread : " << std::this_thread::get_id()
+            << " Handling Client FD" << client_fd << std::endl;
   char buffer[BUFFER_SIZE];
   std::string accumulated_string;
 
@@ -52,9 +68,20 @@ void handle_client(int client_fd) {
 
     if (bytes_recieved <= 0) {
       if (bytes_recieved == 0) {
-        std::cout << "Client FD : " << client_fd << "Disconnected" << std::endl;
+        std::cout << "Thread : " << std::this_thread::get_id()
+                  << " Client FD : " << client_fd << "Disconnected"
+                  << std::endl;
       } else {
-        perror("recv failed for client");
+        if (errno != ECONNRESET && errno != EPIPE) {
+          perror(("recv failed for client" +
+                  std::to_string(reinterpret_cast<uintptr_t>(pthread_self())) +
+                  ": recv failed")
+                     .c_str());
+        } else {
+          std::cout << "Thread " << std::this_thread::get_id()
+                    << ": Client FD : " << client_fd
+                    << "Connection reset or epipe problem" << std::endl;
+        }
       }
       close(client_fd);
       return;
@@ -177,10 +204,8 @@ int main() {
     std::cout << "Connection accepted from client FD " << client_fd
               << std::endl;
 
-    // this is blocking call means if a client connects main server loop blocked
-    // here with the first client. So the other clients that are trying to
-    // connect would need to wait
-    handle_client(client_fd);
+    std::thread client_thread(handle_client, client_fd);
+    client_thread.detach();
   }
   close(server_fd);
   return 0;
