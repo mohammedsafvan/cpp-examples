@@ -1,7 +1,9 @@
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 struct MemoryStats {
   unsigned long total_memory, freed_memory, available_memory, cached_memory,
@@ -51,14 +53,18 @@ MemoryStats ReadMemoryInfo() {
 }
 
 int main() {
-  MemoryStats stats = ReadMemoryInfo();
-  std::cout << "Memory Statistics:\n";
-  std::cout << "  Total Memory     : " << stats.total_memory << " kB\n";
-  std::cout << "  Free Memory      : " << stats.freed_memory << " kB\n";
-  std::cout << "  Available Memory : " << stats.available_memory << " kB\n";
-  std::cout << "  Cached Memory    : " << stats.cached_memory << " kB\n";
-  std::cout << "  Buffered Memory  : " << stats.buffered_memory << " kB\n";
-  std::cout << "  Total Swap       : " << stats.total_swap << " kB\n";
-  std::cout << "  Free Swap        : " << stats.freed_swap << " kB\n";
-  std::cout << "  Cached Swap      : " << stats.cached_swap << " kB\n";
+  while (true) {
+    MemoryStats stats = ReadMemoryInfo();
+    std::system("clear");
+    std::cout << "Memory Statistics:\n";
+    std::cout << "  Total Memory     : " << stats.total_memory << " kB\n";
+    std::cout << "  Free Memory      : " << stats.freed_memory << " kB\n";
+    std::cout << "  Available Memory : " << stats.available_memory << " kB\n";
+    std::cout << "  Cached Memory    : " << stats.cached_memory << " kB\n";
+    std::cout << "  Buffered Memory  : " << stats.buffered_memory << " kB\n";
+    std::cout << "  Total Swap       : " << stats.total_swap << " kB\n";
+    std::cout << "  Free Swap        : " << stats.freed_swap << " kB\n";
+    std::cout << "  Cached Swap      : " << stats.cached_swap << " kB\n";
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  }
 }
