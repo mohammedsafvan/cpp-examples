@@ -1,6 +1,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -42,8 +43,8 @@ int main() {
 
     double cpu_utilization = 100.0 * (total_diff - idle_diff) / total_diff;
 
-    std::cout << "CPU cpu_utilization is : " << cpu_utilization << "%"
-              << std::endl;
+    std::cout << "\rCPU cpu_utilization is : " << cpu_utilization << "%"
+              << std::flush;
   }
   return 0;
 }
