@@ -1,10 +1,12 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <netinet/in.h>
 #include <optional>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
@@ -16,13 +18,70 @@
 const int PORT = 6380;
 const int BACKLOG = 5;
 const int BUFFER_SIZE = 1024;
-
+std::string DUMP_FILE_NAME = "miniredis.dump";
 std::unordered_map<std::string, std::string> data_store;
 std::mutex data_store_mutex;
 
 bool kv_del(const std::string &key) {
   std::lock_guard<std::mutex> guard(data_store_mutex);
   return data_store.erase(key) > 0;
+}
+
+bool save_to_disk() {
+  std::lock_guard<std::mutex> guard(data_store_mutex);
+  std::ofstream outfile(DUMP_FILE_NAME, std::ios::out | std::ios::trunc);
+
+  if (!outfile.is_open()) {
+    std::cerr << "Error!, Couldn't open dump file " << DUMP_FILE_NAME
+              << "for writing" << std::endl;
+    return false;
+  }
+
+  std::cout << "Saving data to " << DUMP_FILE_NAME << " ...." << std::endl;
+  for (const auto &pair : data_store) {
+    outfile << pair.first << std::endl;
+    outfile << pair.second << std::endl;
+  }
+  outfile.close();
+  std::cout << "Data saved Successfully." << std::endl;
+  return true;
+}
+
+bool load_from_disk() {
+  std::lock_guard<std::mutex> guard(data_store_mutex);
+  std::ifstream infile(DUMP_FILE_NAME, std::ios::in);
+
+  if (!infile.is_open()) {
+    std::cerr << "Error!, Couldn't open or can't find dump file "
+              << DUMP_FILE_NAME << "for reading starting with empty store"
+              << std::endl;
+    return false;
+  }
+
+  std::cout << "Loading data from " << DUMP_FILE_NAME << "...." << std::endl;
+  data_store.clear();
+
+  std::string key, value;
+  int keys_loaded = 0;
+
+  while (std::getline(infile, key) && std::getline(infile, value)) {
+    data_store[key] = value;
+    keys_loaded++;
+  }
+
+  if (keys_loaded > 0) {
+    std::cout << "Data loaded Successfully." << std::endl;
+  } else if (infile.eof() && keys_loaded == 0 && data_store.empty()) {
+    std::cout << "Dump file  " << DUMP_FILE_NAME
+              << " is empty or got formatting issue" << std::endl;
+  } else if (!infile.eof()) {
+    std::cerr << "Error reading from dump file. Data might be corrupted"
+              << std::endl;
+    infile.close();
+    return false;
+  }
+  infile.close();
+  return true;
 }
 
 void kv_set(const std::string &key, const std::string &value) {
@@ -91,6 +150,7 @@ void handle_client(int client_fd) {
 
     buffer[bytes_recieved] = '\0';
     accumulated_string += buffer;
+    std::cout << accumulated_string;
 
     size_t newline_pos;
     while ((newline_pos = accumulated_string.find('\n')) != std::string::npos) {
@@ -142,6 +202,10 @@ void handle_client(int client_fd) {
           send_response(client_fd, ":1\r\n");
         else
           send_response(client_fd, ":0\r\n");
+      } else if (command == "SAVE") {
+        if (save_to_disk()) {
+          send_response(client_fd, "+OK\r\n");
+        }
       } else if (command == "QUIT") {
         send_response(client_fd, "+OK\r\n");
         std::cout << "Client FD : " << client_fd << "is Quitting......."
@@ -190,6 +254,9 @@ int main() {
     perror("Listening Failed!");
     close(server_fd);
     exit(EXIT_FAILURE);
+  }
+  if (!load_from_disk()) {
+    // Error handling
   }
   std::cout << "Listening on PORT " << PORT << "....." << std::endl;
 
