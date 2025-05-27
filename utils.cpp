@@ -2,9 +2,12 @@
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <sstream>
+#include <string>
 #include <sys/socket.h>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using std::cerr;
@@ -12,6 +15,8 @@ using std::endl;
 using std::string;
 
 using StringMap = std::unordered_map<string, string>;
+using ListOfStringPairOrNothing =
+    std::optional<std::vector<std::pair<std::string, std::string>>>;
 
 namespace utils {
 
@@ -45,6 +50,17 @@ bool kv_del(const string &key, StringMap &data_store,
             std::mutex &data_store_mutex) {
   std::lock_guard<std::mutex> guard(data_store_mutex);
   return data_store.erase(key) > 0;
+}
+
+ListOfStringPairOrNothing kv_getall(StringMap &data_store,
+                                    std::mutex &data_store_mutex) {
+  std::lock_guard<std::mutex> guard(data_store_mutex);
+  std::vector<std::pair<std::string, std::string>> pairs;
+
+  for (const auto &[key, value] : data_store) {
+    pairs.emplace_back(key, value);
+  }
+  return pairs;
 }
 
 void send_response(int client_fd, const std::string &resp) {

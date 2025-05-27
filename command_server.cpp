@@ -71,7 +71,7 @@ bool load_from_disk() {
   }
 
   if (keys_loaded > 0) {
-    cout << "Data loaded Successfully." << endl;
+    cout << "Data loaded Successfully. Keys Loaded : " << keys_loaded << endl;
   } else if (infile.eof() && keys_loaded == 0 && data_store.empty()) {
     cout << "Dump file  " << DUMP_FILE_NAME
          << " is empty or got formatting issue" << endl;
@@ -159,6 +159,15 @@ void handle_client(int client_fd) {
       } else if (command == "SET" && tokens.size() == 3) {
         utils::kv_set(tokens[1], tokens[2], data_store, data_store_mutex);
         send_response(client_fd, "+OK\r\n");
+      } else if (command == "GETALL" && tokens.size() == 1) {
+        auto all_data = utils::kv_getall(data_store, data_store_mutex);
+        if (all_data) {
+          for (const auto &[key, value] : *all_data) {
+            send_response(client_fd, key + " : " + value + "\r\n");
+          }
+        } else {
+          send_response(client_fd, "$-1\r\n");
+        }
       } else if (command == "GET" && tokens.size() == 2) {
         std::optional<std::string> value =
             utils::kv_get(tokens[1], data_store, data_store_mutex);
