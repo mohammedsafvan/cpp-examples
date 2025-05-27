@@ -1,3 +1,4 @@
+#include "utils.h"
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -15,17 +16,17 @@
 #include <unordered_map>
 #include <vector>
 
+using std::cout;
+using std::endl;
+using utils::send_response;
+
 const int PORT = 6380;
 const int BACKLOG = 5;
 const int BUFFER_SIZE = 1024;
+
 std::string DUMP_FILE_NAME = "miniredis.dump";
 std::unordered_map<std::string, std::string> data_store;
 std::mutex data_store_mutex;
-
-bool kv_del(const std::string &key) {
-  std::lock_guard<std::mutex> guard(data_store_mutex);
-  return data_store.erase(key) > 0;
-}
 
 bool save_to_disk() {
   std::lock_guard<std::mutex> guard(data_store_mutex);
@@ -33,17 +34,17 @@ bool save_to_disk() {
 
   if (!outfile.is_open()) {
     std::cerr << "Error!, Couldn't open dump file " << DUMP_FILE_NAME
-              << "for writing" << std::endl;
+              << "for writing" << endl;
     return false;
   }
 
-  std::cout << "Saving data to " << DUMP_FILE_NAME << " ...." << std::endl;
+  cout << "Saving data to " << DUMP_FILE_NAME << " ...." << endl;
   for (const auto &pair : data_store) {
-    outfile << pair.first << std::endl;
-    outfile << pair.second << std::endl;
+    outfile << pair.first << endl;
+    outfile << pair.second << endl;
   }
   outfile.close();
-  std::cout << "Data saved Successfully." << std::endl;
+  cout << "Data saved Successfully." << endl;
   return true;
 }
 
@@ -54,11 +55,11 @@ bool load_from_disk() {
   if (!infile.is_open()) {
     std::cerr << "Error!, Couldn't open or can't find dump file "
               << DUMP_FILE_NAME << "for reading starting with empty store"
-              << std::endl;
+              << endl;
     return false;
   }
 
-  std::cout << "Loading data from " << DUMP_FILE_NAME << "...." << std::endl;
+  cout << "Loading data from " << DUMP_FILE_NAME << "...." << endl;
   data_store.clear();
 
   std::string key, value;
@@ -70,13 +71,13 @@ bool load_from_disk() {
   }
 
   if (keys_loaded > 0) {
-    std::cout << "Data loaded Successfully." << std::endl;
+    cout << "Data loaded Successfully." << endl;
   } else if (infile.eof() && keys_loaded == 0 && data_store.empty()) {
-    std::cout << "Dump file  " << DUMP_FILE_NAME
-              << " is empty or got formatting issue" << std::endl;
+    cout << "Dump file  " << DUMP_FILE_NAME
+         << " is empty or got formatting issue" << endl;
   } else if (!infile.eof()) {
     std::cerr << "Error reading from dump file. Data might be corrupted"
-              << std::endl;
+              << endl;
     infile.close();
     return false;
   }
@@ -84,39 +85,9 @@ bool load_from_disk() {
   return true;
 }
 
-void kv_set(const std::string &key, const std::string &value) {
-  std::lock_guard<std::mutex> guard(data_store_mutex);
-  data_store[key] = value;
-}
-
-std::optional<std::string> kv_get(const std::string &key) {
-  std::lock_guard<std::mutex> guard(data_store_mutex);
-  auto it = data_store.find(key);
-  if (it != data_store.end()) {
-    return it->second;
-  }
-  return std::nullopt;
-}
-std::vector<std::string> tokenize(const std::string &str,
-                                  char delimiter = ' ') {
-  std::vector<std::string> tokens;
-  std::string token;
-
-  std::istringstream tokenStream(str);
-  while (std::getline(tokenStream, token, delimiter)) {
-    tokens.push_back(token);
-  }
-
-  return tokens;
-}
-
-void send_response(int client_fd, const std::string &resp) {
-  send(client_fd, resp.c_str(), resp.length(), 0);
-}
-
 void handle_client(int client_fd) {
-  std::cout << "Thread : " << std::this_thread::get_id()
-            << " Handling Client FD" << client_fd << std::endl;
+  cout << "Thread : " << std::this_thread::get_id() << " Handling Client FD"
+       << client_fd << endl;
   char buffer[BUFFER_SIZE];
   std::string accumulated_string;
 
@@ -127,9 +98,8 @@ void handle_client(int client_fd) {
 
     if (bytes_recieved <= 0) {
       if (bytes_recieved == 0) {
-        std::cout << "Thread : " << std::this_thread::get_id()
-                  << " Client FD : " << client_fd << "Disconnected"
-                  << std::endl;
+        cout << "Thread : " << std::this_thread::get_id()
+             << " Client FD : " << client_fd << "Disconnected" << endl;
       } else {
         if (errno != ECONNRESET && errno != EPIPE) {
           perror(("recv failed for client" +
@@ -137,9 +107,9 @@ void handle_client(int client_fd) {
                   ": recv failed")
                      .c_str());
         } else {
-          std::cout << "Thread " << std::this_thread::get_id()
-                    << ": Client FD : " << client_fd
-                    << "Connection reset or epipe problem" << std::endl;
+          cout << "Thread " << std::this_thread::get_id()
+               << ": Client FD : " << client_fd
+               << "Connection reset or epipe problem" << endl;
         }
       }
       close(client_fd);
@@ -150,7 +120,7 @@ void handle_client(int client_fd) {
 
     buffer[bytes_recieved] = '\0';
     accumulated_string += buffer;
-    std::cout << accumulated_string;
+    cout << accumulated_string;
 
     size_t newline_pos;
     while ((newline_pos = accumulated_string.find('\n')) != std::string::npos) {
@@ -161,13 +131,12 @@ void handle_client(int client_fd) {
         command_line.pop_back();
       }
 
-      std::cout << "Client FD : " << client_fd << "Sent : " << command_line
-                << std::endl;
+      cout << "Client FD : " << client_fd << "Sent : " << command_line << endl;
 
       if (command_line.empty())
         continue;
 
-      std::vector<std::string> tokens = tokenize(command_line);
+      std::vector<std::string> tokens = utils::tokenize(command_line);
       if (tokens.empty()) {
         send_response(client_fd, "-ERR Empty command\r\n");
         continue;
@@ -188,17 +157,18 @@ void handle_client(int client_fd) {
           send_response(client_fd,
                         "-ERR wrong number of arguments for PING command");
       } else if (command == "SET" && tokens.size() == 3) {
-        kv_set(tokens[1], tokens[2]);
+        utils::kv_set(tokens[1], tokens[2], data_store, data_store_mutex);
         send_response(client_fd, "+OK\r\n");
       } else if (command == "GET" && tokens.size() == 2) {
-        std::optional<std::string> value = kv_get(tokens[1]);
+        std::optional<std::string> value =
+            utils::kv_get(tokens[1], data_store, data_store_mutex);
         if (value)
           send_response(client_fd, "$" + std::to_string(value->length()) +
                                        "\r\n" + *value + "\r\n");
         else
           send_response(client_fd, "$-1\r\n");
       } else if (command == "DEL" && tokens.size() == 2) {
-        if (kv_del(tokens[1]))
+        if (utils::kv_del(tokens[1], data_store, data_store_mutex))
           send_response(client_fd, ":1\r\n");
         else
           send_response(client_fd, ":0\r\n");
@@ -208,8 +178,7 @@ void handle_client(int client_fd) {
         }
       } else if (command == "QUIT") {
         send_response(client_fd, "+OK\r\n");
-        std::cout << "Client FD : " << client_fd << "is Quitting......."
-                  << std::endl;
+        cout << "Client FD : " << client_fd << "is Quitting......." << endl;
         close(client_fd);
         return;
       } else {
@@ -230,7 +199,7 @@ int main() {
     perror("Socket creation Failed");
     exit(EXIT_FAILURE);
   }
-  std::cout << "Socket created Successfully..." << std::endl;
+  cout << "Socket created Successfully..." << endl;
 
   int opt = 1;
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
@@ -248,7 +217,7 @@ int main() {
     close(server_fd);
     exit(EXIT_FAILURE);
   }
-  std::cout << "Socket Bound to Port " << PORT << std::endl;
+  cout << "Socket Bound to Port " << PORT << endl;
 
   if (listen(server_fd, BACKLOG) < 0) {
     perror("Listening Failed!");
@@ -258,7 +227,7 @@ int main() {
   if (!load_from_disk()) {
     // Error handling
   }
-  std::cout << "Listening on PORT " << PORT << "....." << std::endl;
+  cout << "Listening on PORT " << PORT << "....." << endl;
 
   while (true) {
     client_fd =
@@ -268,8 +237,7 @@ int main() {
       continue;
     }
 
-    std::cout << "Connection accepted from client FD " << client_fd
-              << std::endl;
+    cout << "Connection accepted from client FD " << client_fd << endl;
 
     std::thread client_thread(handle_client, client_fd);
     client_thread.detach();
