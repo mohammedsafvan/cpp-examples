@@ -8,7 +8,6 @@
 #include <netinet/in.h>
 #include <optional>
 #include <ostream>
-#include <sstream>
 #include <string>
 #include <sys/socket.h>
 #include <thread>

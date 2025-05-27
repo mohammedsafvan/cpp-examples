@@ -15,6 +15,7 @@ namespace utils {
 void send_notification(const std::string &msg);
 void play_sound();
 
+void send_dialog(const std::string &msg);
 void kv_set(const std::string &key, const std::string &value,
             StringMap &data_store, std::mutex &data_store_mutex);
 bool kv_del(const std::string &key, StringMap &data_store,

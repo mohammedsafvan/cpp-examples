@@ -28,10 +28,20 @@ void play_sound() {
          << endl;
   }
 }
+
+void send_dialog(const string &msg) {
+  string command = "kdialog --title=\"TermAlarm\" --msgbox \"Time's up\"";
+  int res = system(command.c_str());
+  if (res != 0) {
+
+    cerr << "Warning: Could not show desktop Dialog. Is "
+            "'kdialog' installed?"
+         << endl;
+  }
+}
 void send_notification(const string &msg) {
   string command = "notify-send 'Timer Alert!' '" + msg +
                    "' -u critical -i 'dialog-information'";
-
   int res = system(command.c_str());
   if (res != 0) {
     cerr << "Warning: Could not show desktop notification. Is "

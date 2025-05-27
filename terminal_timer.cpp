@@ -1,10 +1,14 @@
 #include "utils.h"
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <ctime>
+#include <fcntl.h>
 #include <iostream>
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <thread>
 #include <unistd.h>
@@ -13,13 +17,16 @@ using std::cerr;
 using std::cout;
 using std::endl;
 /*
- * So in this code base the target is  a timer that can work in the
- * background(in a light weight form) 🔥. By creating a child process 🧒, and
- * running the task on the child process, the running is not dependent on the
- * parent process, so the parent process can be closed without affecting the
- * child(the timer running) process. The child process become an orphan 😢
- * process, those orphans are taken care by 🌟 `init` or `systemd` of linux
+ * Now the process we need to work on the daemonization 👻 of process, which
+ * means the process is currently depends on or under the parent process 👪.
+ * which comes with some characteristics and properties of the parent process.
+ * This needs to be changed, The child 🧒 process needs to run on it's own. It
+ * should be the group leader, currently it is parent process so we will make
+ * use setsid
  */
+void daemonize();
+void run_timer_daemon_task(int duration_seconds);
+
 void run_timer(int duration_seconds) {
   cout << "Timer Process PID : " << getpid() << " started for "
        << duration_seconds << "seconds" << endl;
@@ -70,22 +77,53 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  pid_t process_id = fork();
+  daemonize();
 
-  if (process_id < 0) {
-    cerr << "Failed to fork Process!" << endl;
-    return 1;
+  run_timer_daemon_task(duration_in_seconds);
+}
+
+void run_timer_daemon_task(int duration_seconds) {
+  std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
+
+  std::string alarm_message = "Your " + std::to_string(duration_seconds) +
+                              " second timer has finished.";
+  utils::send_notification(alarm_message);
+  utils::send_dialog(alarm_message);
+  exit(EXIT_SUCCESS);
+}
+
+void daemonize() {
+  pid_t pid;
+  pid = fork();
+
+  if (pid < 0) {
+    perror("Fork Failed");
+    exit(EXIT_FAILURE);
   }
-
-  if (process_id > 0) {
-    // If the process is parent
-    cout << "Process started in the background in child process CHILD PID : "
-         << process_id << endl;
-    cout << "Parent Process Id : " << getpid() << "; Now exiting" << endl;
-    return 0;
+  if (pid > 0) {
+    // this is parent process, Now we don't need the parent process, we only
+    // need the child process from now on
+    exit(EXIT_SUCCESS);
+  }
+  if (setsid() < 0) {
+    perror("Setsid failed");
+    exit(EXIT_FAILURE);
+  }
+  if (chdir("/") < 0) {
+    perror("Can't change dir");
+    exit(EXIT_FAILURE);
+  }
+  umask(0);
+  close(STDIN_FILENO);
+  int fd_null = open("/dev/null", O_RDWR);
+  if (fd_null != -1) {
+    dup2(fd_null, STDERR_FILENO);
+    dup2(fd_null, STDOUT_FILENO);
+    if (fd_null > STDERR_FILENO) {
+      close(fd_null);
+    }
   } else {
-    // Child Process
-    run_timer(duration_in_seconds);
-    return 0;
+    close(STDERR_FILENO);
+    close(STDOUT_FILENO);
   }
 }
