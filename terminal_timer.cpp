@@ -1,5 +1,6 @@
 #include "utils.h"
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -16,13 +17,17 @@
 using std::cerr;
 using std::cout;
 using std::endl;
+
+volatile sig_atomic_t g_terminate_flag = 0;
+
+void handle_signal(int sig_number) {
+  if (sig_number == SIGINT || sig_number == SIGTERM) {
+    g_terminate_flag = 1;
+  }
+}
 /*
- * Now the process we need to work on the daemonization 👻 of process, which
- * means the process is currently depends on or under the parent process 👪.
- * which comes with some characteristics and properties of the parent process.
- * This needs to be changed, The child 🧒 process needs to run on it's own. It
- * should be the group leader, currently it is parent process so we will make
- * use setsid
+ * Now the process needs to have an option for graceful shutdown, Now the user
+ * can kill 🗡️ the process with pid gracefully.
  */
 void daemonize();
 void run_timer_daemon_task(int duration_seconds);
@@ -47,7 +52,6 @@ void run_timer(int duration_seconds) {
 
   utils::send_notification(msg);
   utils::play_sound();
-
   exit(0);
 }
 
@@ -76,19 +80,30 @@ int main(int argc, char *argv[]) {
     cerr << "Error: Duration must be a positive number of seconds." << endl;
     return 1;
   }
+  if (signal(SIGINT, handle_signal) == SIG_ERR) {
+    perror("Cannot set SIGINT handler");
+  }
+  if (signal(SIGTERM, handle_signal) == SIG_ERR) {
+    perror("Cannot set SIGTERM handler");
+  }
 
   daemonize();
-
   run_timer_daemon_task(duration_in_seconds);
 }
 
 void run_timer_daemon_task(int duration_seconds) {
-  std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
-
-  std::string alarm_message = "Your " + std::to_string(duration_seconds) +
-                              " second timer has finished.";
-  utils::send_notification(alarm_message);
-  utils::send_dialog(alarm_message);
+  for (int i = duration_seconds; i < duration_seconds; ++i) {
+    if (g_terminate_flag) {
+      utils::send_notification("Timer stopped Prematurely by SIGNAL");
+      exit(EXIT_SUCCESS);
+    }
+  }
+  if (!g_terminate_flag) {
+    std::string alarm_message = "Your " + std::to_string(duration_seconds) +
+                                " second timer has finished.";
+    utils::send_notification(alarm_message);
+    utils::send_dialog(alarm_message);
+  }
   exit(EXIT_SUCCESS);
 }
 
