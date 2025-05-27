@@ -92,11 +92,12 @@ int main(int argc, char *argv[]) {
 }
 
 void run_timer_daemon_task(int duration_seconds) {
-  for (int i = duration_seconds; i < duration_seconds; ++i) {
+  for (int i = 0; i < duration_seconds; ++i) {
     if (g_terminate_flag) {
       utils::send_notification("Timer stopped Prematurely by SIGNAL");
       exit(EXIT_SUCCESS);
     }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   if (!g_terminate_flag) {
     std::string alarm_message = "Your " + std::to_string(duration_seconds) +
