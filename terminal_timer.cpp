@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -23,8 +24,8 @@ const std::string PID_FILE_PATH = "/tmp/term_timer.pid";
 volatile sig_atomic_t g_terminate_flag = 0;
 
 /*
- * Now the process needs to have an option for graceful shutdown, Now the user
- * can kill 🗡️ the process with pid gracefully.
+ * The format of start is changed, Now the user can provide `s` for seconds,`m`
+ * for minutes and `h` for hours. Example: 2h3m1s
  */
 
 void handle_signal(int sig_number);
@@ -32,6 +33,7 @@ void daemonize();
 void run_timer_daemon_task(int duration_seconds);
 bool is_daemon_running();
 void create_pid_file();
+double parse_duration_seconds(const std::string &);
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
@@ -53,7 +55,7 @@ int main(int argc, char *argv[]) {
     int duration_in_seconds;
 
     try {
-      duration_in_seconds = std::stoi(std::string(argv[2]));
+      duration_in_seconds = parse_duration_seconds(argv[2]);
     } catch (const std::invalid_argument &ia) {
       cerr << "Error: Invalid duration '" << argv[2] << "'. " << ia.what()
            << endl;
@@ -185,8 +187,8 @@ void run_timer_daemon_task(int duration_seconds) {
 
 bool is_daemon_running() {
   std::ifstream pid_file(PID_FILE_PATH);
-  if (pid_file.is_open()) {
-    return true;
+  if (!pid_file.is_open()) {
+    return false;
   }
 
   pid_t pid;
@@ -233,6 +235,46 @@ void create_pid_file() {
     exit(EXIT_FAILURE);
   }
   pid_file.close();
+}
+
+double parse_duration_seconds(const std::string &duration_str) {
+  std::string digit_str = "";
+  double total_sec = 0;
+  for (const char &c : duration_str) {
+    if (std::isdigit(c)) {
+      digit_str += c;
+    } else {
+      if (!digit_str.empty()) {
+        char unit = std::tolower(c);
+        long long val;
+        try {
+          val = std::stoll(digit_str);
+        } catch (const std::invalid_argument &ia) {
+          return -1;
+        } catch (const std::out_of_range &oor) {
+          return -1;
+        }
+
+        if (unit == 'h') {
+          total_sec += val * 3600;
+        } else if (unit == 'm') {
+          total_sec += val * 60;
+        } else if (unit == 's') {
+          total_sec += val;
+        } else {
+          return -1;
+        }
+
+        digit_str.clear();
+      } else {
+        std::cout << "char " << c << " don't have any digit to associate with!";
+        return -1;
+      }
+    }
+  }
+  return (total_sec > 0 && total_sec <= 2147483647)
+             ? static_cast<int>(total_sec)
+             : -1;
 }
 
 void daemonize() {
