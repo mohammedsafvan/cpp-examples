@@ -30,7 +30,15 @@ void play_sound() {
 }
 
 void send_dialog(const string &msg) {
-  string command = "kdialog --title=\"TermAlarm\" --msgbox \"Time's up\"";
+  std::string escaped_msg = msg;
+  size_t pos = 0;
+
+  while ((pos = escaped_msg.find('\'')) != std::string::npos) {
+    escaped_msg.replace(pos, 1, "'\\''");
+    pos += 4;
+  }
+  string command =
+      "kdialog --title=\"TermAlarm\" --msgbox \"" + escaped_msg + "\"";
   if (system(command.c_str()) != 0) {
 
     cerr << "Warning: Could not show desktop Dialog. Is "

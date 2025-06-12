@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <fstream>
@@ -21,12 +22,69 @@ using std::cerr;
 using std::endl;
 
 const std::string PID_FILE_PATH = "/tmp/term_timer.pid";
+const std::string LOG_FILE_PATH = "/tmp/term_timer.log";
 volatile sig_atomic_t g_terminate_flag = 0;
+
+class Logger {
+public:
+  enum class Level { INFO, WARNING, ERROR };
+  Logger(const std::string &log_file_path)
+      : log_file_stream_(log_file_path, std::ios::app) {
+    if (!log_file_stream_.is_open()) {
+      cerr << "FATAL: Could not open log file: " << log_file_path << endl;
+    }
+  }
+
+  Logger(const Logger &) = delete;
+  Logger &operator=(const Logger &) = delete;
+  Logger(const Logger &&) = delete;
+  Logger &operator=(const Logger &&) = delete;
+
+  void log(Level level, const std::string &message) {
+    if (!log_file_stream_.is_open()) {
+      return;
+    }
+
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+    char time_buffer[100];
+
+    std::tm now_tm = *std::localtime(&now_time_t);
+    if (std::strftime(time_buffer, sizeof(time_buffer), "%Y-%m-%d %H:%M:%S",
+                      &now_tm)) {
+      log_file_stream_ << time_buffer;
+    } else {
+      log_file_stream_ << "TIMESTAMP_ERROR";
+    }
+
+    log_file_stream_ << " [" << level_to_string(level) << "] ";
+    log_file_stream_ << "[PID:" << getpid() << "] ";
+    log_file_stream_ << message << endl;
+  }
+
+private:
+  std::ofstream log_file_stream_;
+
+  std::string level_to_string(Level level) {
+    switch (level) {
+    case Level::INFO:
+      return "INFO   ";
+    case Level::WARNING:
+      return "WARNING";
+    case Level::ERROR:
+      return "ERROR  ";
+    default:
+      return "UNKNOWN";
+    }
+  }
+};
 
 /*
  * The format of start is changed, Now the user can provide `s` for seconds,`m`
  * for minutes and `h` for hours. Example: 2h3m1s
  */
+
+Logger *g_logger = nullptr;
 
 void handle_signal(int sig_number);
 void daemonize();
@@ -47,6 +105,7 @@ int main(int argc, char *argv[]) {
   std::string command = argv[1];
 
   if (command == "start") {
+    // TODO: Add message input support
     if (argc != 3) {
       cerr << "Usage: " << argv[0] << " start <duration_seconds>" << endl;
       return 1;
@@ -84,6 +143,8 @@ int main(int argc, char *argv[]) {
 
     daemonize();
 
+    g_logger = new Logger(LOG_FILE_PATH);
+    g_logger->log(Logger::Level::INFO, "Daemon Started working");
     // The PID file should be created by the daemonized child process
     create_pid_file();
     run_timer_daemon_task(duration_in_seconds);
@@ -167,21 +228,34 @@ int main(int argc, char *argv[]) {
 }
 
 void run_timer_daemon_task(int duration_seconds) {
+  if (g_logger)
+    g_logger->log(Logger::Level::INFO, "Timer task started. Duration: " +
+                                           std::to_string(duration_seconds));
   for (int i = 0; i < duration_seconds; ++i) {
     if (g_terminate_flag) { // Termination by SIGNAL
+      if (g_logger)
+        g_logger->log(Logger::Level::INFO, "Timer task interrupted by signal.");
       utils::send_notification("Timer stopped Prematurely by SIGNAL");
       std::remove(PID_FILE_PATH.c_str());
+      if (g_logger)
+        g_logger->log(Logger::Level::INFO,
+                      "PID file removed. Exiting due to signal.");
       exit(EXIT_SUCCESS);
     }
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   if (!g_terminate_flag) {
+    if (g_logger)
+      g_logger->log(Logger::Level::INFO, "Timer finished naturally.");
     std::string alarm_message = "Your " + std::to_string(duration_seconds) +
                                 " second timer has finished.";
     utils::send_notification(alarm_message);
     utils::send_dialog(alarm_message);
   }
   std::remove(PID_FILE_PATH.c_str()); // Normal completion
+  if (g_logger)
+    g_logger->log(Logger::Level::INFO, "PID file removed. Exiting normally.");
+  delete g_logger;
   exit(EXIT_SUCCESS);
 }
 
@@ -220,17 +294,30 @@ void create_pid_file() {
     cerr << "If not, remove " << PID_FILE_PATH << " manually." << endl;
     exit(EXIT_FAILURE);
   }
+  if (g_logger)
+    g_logger->log(Logger::Level::INFO, "Creating PID file: " + PID_FILE_PATH);
 
   std::ofstream pid_file(PID_FILE_PATH, std::ios::out | std::ios::trunc);
   if (!pid_file.is_open()) {
-    perror(("Error creating PID File at : " + PID_FILE_PATH).c_str());
+    if (g_logger) {
+      g_logger->log(Logger::Level::ERROR,
+                    "Failed to write to PID file: " + PID_FILE_PATH +
+                        ". Error: " + strerror(errno));
+    } else {
+      cerr << "Error creating PID file: " << PID_FILE_PATH << endl;
+    }
     exit(EXIT_FAILURE);
   }
 
   pid_file << getpid();
   if (pid_file.fail()) {
     pid_file.close();
-    perror(("Error writing to PID file: " + PID_FILE_PATH).c_str());
+    if (g_logger)
+      g_logger->log(Logger::Level::ERROR,
+                    "Failed to write to PID file: " + PID_FILE_PATH +
+                        ". Error: " + strerror(errno));
+    else
+      std::cerr << "Error writing to PID file: " << PID_FILE_PATH << std::endl;
     std::remove(PID_FILE_PATH.c_str());
     exit(EXIT_FAILURE);
   }
@@ -314,6 +401,9 @@ void daemonize() {
 }
 
 void handle_signal(int sig_number) {
+  if (g_logger)
+    g_logger->log(Logger::Level::INFO,
+                  "Signal " + std::to_string(sig_number) + " received.");
   if (sig_number == SIGINT || sig_number == SIGTERM) {
     g_terminate_flag = 1;
   }
